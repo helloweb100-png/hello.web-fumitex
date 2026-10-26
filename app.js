@@ -14,6 +14,7 @@
    05 Hero (intro/mira)   13 Seguridad (bento)      21 Arranque
    06 Campo de partículas 14 Revelados genéricos
    07 Marquesina          15 FAQ
+   20b Galería de trabajos (entrada, paralaje y visor)    20c Mapa
    ========================================================================== */
 (() => {
     'use strict';
@@ -733,6 +734,121 @@
         });
     }
 
+    /* 20b · GALERÍA DE TRABAJOS ============================================ */
+    function initWork() {
+        const grid = $('#gallery');
+        if (!grid) return;
+        const shots = $$('.shot', grid);
+
+        // Entrada escalonada (la mira se cierra sobre cada foto) + paralaje suave dentro de cada marco
+        if (animate) {
+            gsap.set(shots, { opacity: 0, y: 56 });
+            ScrollTrigger.batch(shots, {
+                start: 'top 92%', once: true,
+                onEnter: els => {
+                    els.forEach(el => el.classList.add('is-in'));
+                    gsap.to(els, { opacity: 1, y: 0, duration: 1.2, ease: 'expo.out', stagger: .09, overwrite: true, clearProps: 'transform' });
+                }
+            });
+            shots.forEach(s => {
+                gsap.fromTo($('img', s), { yPercent: -4.5 }, {
+                    yPercent: 4.5, ease: 'none',
+                    scrollTrigger: { trigger: s, start: 'top bottom', end: 'bottom top', scrub: true }
+                });
+            });
+        }
+
+        // Visor. Sin <dialog> (o sin JS) cada foto simplemente abre su imagen grande.
+        const lb = $('#lb');
+        if (!lb || typeof lb.showModal !== 'function') return;
+        const img = $('#lb-img'), stage = $('#lb-stage');
+        const nEl = $('#lb-n'), tagEl = $('#lb-tag'), titleEl = $('#lb-title');
+        const items = shots.map(s => {
+            const link = $('.shot__link', s);
+            return { link, href: link.getAttribute('href'), alt: $('img', s).alt, tag: $('.shot__tag', s).textContent, title: $('.shot__title', s).textContent };
+        });
+        const total = items.length;
+        const pad = n => String(n).padStart(2, '0');
+        let cur = 0;
+        $('#lb-total').textContent = pad(total);
+
+        const show = i => {
+            cur = (i + total) % total;
+            const it = items[cur], mine = cur;
+            nEl.textContent = pad(cur + 1);
+            tagEl.textContent = it.tag;
+            titleEl.textContent = it.title;
+            const fade = img.classList.contains('is-in') ? 180 : 0;   // deja salir la foto anterior
+            img.classList.remove('is-in');
+            const next = new Image();
+            next.src = it.href;
+            const ready = next.decode ? next.decode().catch(() => {}) : Promise.resolve();
+            Promise.all([ready, new Promise(r => setTimeout(r, fade))]).then(() => {
+                if (mine !== cur) return;
+                img.src = it.href; img.alt = it.alt;
+                img.classList.add('is-in');
+            });
+            [cur + 1, cur - 1].forEach(j => { new Image().src = items[(j + total) % total].href; });   // precarga vecinas
+        };
+
+        // El bloqueo de scroll se libera desde "cancel" (Esc / atrás), "close" y los botones: cualquiera que llegue primero
+        let locked = false;
+        const lock = () => {
+            if (locked) return;
+            locked = true;
+            lenis ? lenis.stop() : (root.style.overflow = 'hidden');
+        };
+        const unlock = () => {
+            if (!locked) return;
+            locked = false;
+            img.classList.remove('is-in');
+            if (!menuOpen) lenis ? lenis.start() : (root.style.overflow = '');
+        };
+        const closeLb = () => { unlock(); if (lb.open) lb.close(); };
+        const open = i => {
+            if (!lb.open) { lb.showModal(); lock(); }
+            show(i);
+        };
+        lb.addEventListener('cancel', unlock);
+        lb.addEventListener('close', () => { if (!lb.open) unlock(); });   // un "close" tardío no debe soltar un visor ya reabierto
+
+        items.forEach((it, i) => it.link.addEventListener('click', e => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button) return;   // abrir en pestaña nueva sigue funcionando
+            e.preventDefault();
+            open(i);
+        }));
+        $('#lb-close').addEventListener('click', closeLb);
+        $('#lb-prev').addEventListener('click', () => show(cur - 1));
+        $('#lb-next').addEventListener('click', () => show(cur + 1));
+        lb.addEventListener('click', e => { if (e.target === lb) closeLb(); });
+        lb.addEventListener('keydown', e => {
+            if (e.key === 'ArrowRight') { e.preventDefault(); show(cur + 1); }
+            else if (e.key === 'ArrowLeft') { e.preventDefault(); show(cur - 1); }
+        });
+
+        // Deslizar con el dedo para cambiar de foto
+        let sx = 0, sy = 0, tracking = false;
+        stage.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') return; sx = e.clientX; sy = e.clientY; tracking = true; });
+        stage.addEventListener('pointercancel', () => { tracking = false; });
+        stage.addEventListener('pointerup', e => {
+            if (!tracking) return;
+            tracking = false;
+            const dx = e.clientX - sx, dy = e.clientY - sy;
+            if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.4) show(cur + (dx < 0 ? 1 : -1));
+        });
+    }
+
+    /* 20c · MAPA (bloqueado hasta tocarlo: así no atrapa el scroll de la página) */
+    function initMap() {
+        const frame = $('#map-frame');
+        if (!frame) return;
+        const set = on => frame.classList.toggle('is-active', on);
+        frame.addEventListener('click', () => set(true));
+        frame.addEventListener('focusin', () => set(true));
+        frame.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') set(false); });
+        document.addEventListener('pointerdown', e => { if (!frame.contains(e.target)) set(false); });
+    }
+
     /* 21 · ARRANQUE ======================================================== */
     root.classList.add('is-loading');
     safe('scroll', initScroll);
@@ -751,10 +867,12 @@
     safe('protocol', initProtocol);
     safe('bento', initBento);
     safe('guarantee', initGuarantee);
+    safe('work', initWork);
     safe('faq', initFaq);
     safe('footer', initFooter);
     safe('reveals', initReveals);
     safe('form', initForm);
+    safe('map', initMap);
     safe('buttons', initButtons);
 
     // Recalcular pines y disparadores cuando fuentes e imágenes ya midieron
